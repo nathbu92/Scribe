@@ -1,0 +1,39 @@
+{
+  "name": "martinews-scribe",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:web": "tsc -b && vite build --outDir docs --emptyOutDir --base ./",
+    "typecheck": "tsc -b",
+    "lint": "tsc -b --noEmit",
+    "tauri": "tauri",
+    "test": "cd server && npm test"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.0",
+    "@tauri-apps/plugin-opener": "^2.2.0",
+    "@tauri-apps/plugin-updater": "^2.3.0",
+    "@tiptap/extension-image": "^2.10.0",
+    "@tiptap/extension-link": "^2.10.0",
+    "@tiptap/extension-text-align": "^2.10.0",
+    "@tiptap/extension-underline": "^2.10.0",
+    "@tiptap/react": "^2.10.0",
+    "@tiptap/starter-kit": "^2.10.0",
+    "diff": "^7.0.0",
+    "mammoth": "^1.8.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/diff": "^6.0.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11"
+  }
+}

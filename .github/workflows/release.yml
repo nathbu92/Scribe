@@ -1,0 +1,85 @@
+name: Release
+
+# Actions > Release > Run workflow, sur une branche release/*.
+# Crée d'abord un brouillon de release GitHub dont le tag est v + version de package.json (ex. v0.1.0).
+# Les installeurs signés + latest.json (mises à jour automatiques) sont envoyés dans le brouillon,
+# puis la release est publiée si tout a réussi.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publication-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  prepare:
+    needs: [ci]
+    runs-on: ubuntu-24.04
+    permissions: { contents: write }
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - id: release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          [[ "$GITHUB_REF" == refs/heads/release/* ]] || { echo "::error::Lance depuis une branche release/*"; exit 1; }
+          tag="v$(node -p 'require("./package.json").version')"
+          id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq ".[] | select(.draft and .tag_name == \"$tag\") | .id" | head -n 1)"
+          [[ -n "$id" ]] || { echo "::error::Aucun brouillon de release avec le tag $tag"; exit 1; }
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -f tag_name="$tag" -f target_commitish="$GITHUB_SHA" > /dev/null
+          echo "id=$id" >> "$GITHUB_OUTPUT"; echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [prepare]
+    permissions: { contents: write }
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { name: Windows x64, os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis }
+          - { name: macOS universel, os: macos-latest, target: universal-apple-darwin, rust_targets: "aarch64-apple-darwin,x86_64-apple-darwin", bundles: "app,dmg" }
+          - { name: Linux x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, bundles: "deb,appimage" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - name: Dépendances système de Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "${{ matrix.rust_targets || matrix.target }}" }
+      - uses: Swatinem/rust-cache@v2
+        with: { workspaces: src-tauri }
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          args: --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-24.04
+    permissions: { contents: write }
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -f tag_name="$TAG" -F draft=false --jq .tag_name
