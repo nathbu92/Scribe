@@ -1,0 +1,42 @@
+name: Générer les lockfiles
+# À lancer à la main (Actions > Générer les lockfiles > Run workflow) : crée/met à jour
+# src-tauri/Cargo.lock, package-lock.json et server/package-lock.json, formate le Rust,
+# commit sur la branche puis relance le CI (un push fait par GITHUB_TOKEN ne déclenche rien tout seul).
+on:
+  workflow_dispatch:
+
+jobs:
+  lock:
+    name: Lockfiles + relance CI
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { components: rustfmt }
+      - name: Lockfile npm (app)
+        run: npm install --package-lock-only
+      - name: Lockfile npm (serveur)
+        run: npm install --package-lock-only
+        working-directory: server
+      - name: Cargo.lock
+        run: cargo generate-lockfile
+        working-directory: src-tauri
+      - name: Formater le Rust
+        run: cargo fmt
+        working-directory: src-tauri
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "chore: lockfiles + format"
+          git push
+      - name: Relancer le CI sur la branche
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref "${{ github.ref_name }}"
